@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Papa from "papaparse";
 import { getPersistentColorMap } from "./color-utils";
+import CategoryPicker from "./components/CategoryPicker";
+import { DEPT_MAP } from "./constants/departments";
 import {
   LineChart,
   Line,
@@ -31,8 +33,59 @@ const DIMENSION_COLUMN_NAMES = new Set([
 const COLOR_STORAGE_KEY = "salesSeriesColorMap";
 
 const BRAND_COLOR_OVERRIDES = {
-  "Parts All": "#1f77b4",
-  "Service All": "#2ca02c",
+  "Total Equipment": "#1d4ed8",
+  "Total Rental": "#7c3aed",
+  "Total Parts": "#0f766e",
+  "Total Service": "#d97706",
+};
+
+const DEFAULT_METRICS = [
+  "Total Equipment",
+  "Total Rental",
+  "Total Parts",
+  "Total Service",
+];
+
+const DEPARTMENT_PALETTES = {
+  Equipment: [
+    "#1e3a8a",
+    "#1d4ed8",
+    "#2563eb",
+    "#3b82f6",
+    "#1e40af",
+    "#1e409f",
+    "#153e75",
+    "#2b6cb0",
+  ],
+  Rental: [
+    "#5b21b6",
+    "#6d28d9",
+    "#7c3aed",
+    "#8b5cf6",
+    "#4c1d95",
+    "#a855f7",
+    "#c084fc",
+  ],
+  Parts: [
+    "#0f766e",
+    "#047857",
+    "#0d9488",
+    "#14b8a6",
+    "#0e7490",
+    "#115e59",
+    "#134e4a",
+    "#1f938a",
+    "#2dd4bf",
+    "#22d3ee",
+    "#0f5f5c",
+  ],
+  Service: [
+    "#b45309",
+    "#c2410c",
+    "#d97706",
+    "#ea580c",
+    "#f97316",
+  ],
 };
 
 // YYYY-MM helpers
@@ -258,7 +311,7 @@ export default function App() {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState("all");
-  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_METRICS);
   const [viewMode, setViewMode] = useState("line");
   const [metric, setMetric] = useState("value"); // "value" | "r12" | "r12Value"
 
@@ -267,7 +320,7 @@ export default function App() {
 
   const [dataset, setDataset] = useState(DEFAULT_DATASET);
   const [availableDatasets, setAvailableDatasets] = useState([]);
-  const [hoveredCategory, setHoveredCategory] = useState(null);
+  const [hoveredMetric, setHoveredMetric] = useState(null);
 
   const datasetMap = useMemo(
     () => Object.fromEntries(availableDatasets.map((d) => [d.id, d])),
@@ -599,12 +652,16 @@ export default function App() {
     });
 
   // Default categories prefer dataset-configured total for a quick summary
-  const pickDefaultCategories = useCallback(
-    (cats) => {
-      if (!Array.isArray(cats) || !cats.length) return [];
+  const pickDefaultMetrics = useCallback(
+    (metrics) => {
+      if (!Array.isArray(metrics) || !metrics.length) return [];
+      const defaults = DEFAULT_METRICS.filter((metric) =>
+        metrics.includes(metric)
+      );
+      if (defaults.length) return defaults;
       const preferred = datasetConfig?.defaultCategory;
-      if (preferred && cats.includes(preferred)) return [preferred];
-      return cats.slice(0, Math.min(2, cats.length));
+      if (preferred && metrics.includes(preferred)) return [preferred];
+      return metrics.slice(0, Math.min(4, metrics.length));
     },
     [datasetConfig]
   );
@@ -638,10 +695,11 @@ export default function App() {
       setDateEnd(maxStr);
     }
 
-    const cats = [...new Set(parsed.map((r) => r.Category))];
-    setSelectedCategories((prev) => {
-      const preserved = prev.filter((c) => cats.includes(c));
-      return preserved.length ? preserved : pickDefaultCategories(cats);
+    const metrics = [...new Set(parsed.map((r) => r.Category))];
+    setSelectedMetrics((prev) => {
+      const preserved = prev.filter((c) => metrics.includes(c));
+      if (preserved.length) return preserved;
+      return pickDefaultMetrics(metrics);
     });
 
     const branches = [...new Set(parsed.map((r) => r.Branch).filter(Boolean))].sort();
@@ -660,7 +718,7 @@ export default function App() {
     [rows]
   );
 
-  const allCategories = useMemo(() => {
+  const allMetrics = useMemo(() => {
     const seen = new Set();
     const ordered = [];
     for (const row of rows) {
@@ -702,12 +760,12 @@ export default function App() {
         map.set(compound, { month: `${monthNames[r.Month - 1]} ${r.Year}`, Year: r.Year, Month: r.Month });
       }
       const obj = map.get(compound);
-      if (selectedCategories.includes(r.Category)) {
+      if (selectedMetrics.includes(r.Category)) {
         obj[r.Category] = (obj[r.Category] || 0) + r.Value;
       }
     }
     return Array.from(map.values()).sort((a, b) => a.Year - b.Year || a.Month - b.Month);
-  }, [rows, selectedCategories, selectedBranches, dateStart, dateEnd]);
+  }, [rows, selectedMetrics, selectedBranches, dateStart, dateEnd]);
 
   // Monthly aggregation across ALL months (for R12 computation), filtered by selected branches only
   const monthlyAggAllMonths = useMemo(() => {
@@ -737,7 +795,7 @@ export default function App() {
 
   // Compute R12 growth % for selected categories
   const r12Data = useMemo(() => {
-    if (!monthlyAggAllMonths.length || !selectedCategories.length) return [];
+    if (!monthlyAggAllMonths.length || !selectedMetrics.length) return [];
 
     const data = [];
     const A = monthlyAggAllMonths;
@@ -750,7 +808,7 @@ export default function App() {
       }
       const row = { Year: A[i].Year, Month: A[i].Month, month: A[i].month };
 
-      for (const cat of selectedCategories) {
+      for (const cat of selectedMetrics) {
         let curr12 = 0, prev12 = 0;
         for (let j = i - 11; j <= i; j++) curr12 += Number(A[j][cat] || 0);
         for (let j = i - 23; j <= i - 12; j++) prev12 += Number(A[j][cat] || 0);
@@ -769,11 +827,11 @@ export default function App() {
       });
     }
     return data;
-  }, [monthlyAggAllMonths, selectedCategories, dateStart, dateEnd]);
+  }, [monthlyAggAllMonths, selectedMetrics, dateStart, dateEnd]);
 
   // Compute Rolling 12 Value for selected categories
   const r12ValueData = useMemo(() => {
-    if (!monthlyAggAllMonths.length || !selectedCategories.length) return [];
+    if (!monthlyAggAllMonths.length || !selectedMetrics.length) return [];
 
     const data = [];
     const A = monthlyAggAllMonths;
@@ -781,7 +839,7 @@ export default function App() {
     for (let i = 0; i < A.length; i++) {
       const row = { Year: A[i].Year, Month: A[i].Month, month: A[i].month };
 
-      for (const cat of selectedCategories) {
+      for (const cat of selectedMetrics) {
         if (i < 11) {
           row[cat] = null;
           continue;
@@ -804,7 +862,7 @@ export default function App() {
       });
     }
     return data;
-  }, [monthlyAggAllMonths, selectedCategories, dateStart, dateEnd]);
+  }, [monthlyAggAllMonths, selectedMetrics, dateStart, dateEnd]);
 
   // Auto-zoom to available R12-style data if user hasn't chosen a range
   useEffect(() => {
@@ -815,11 +873,11 @@ export default function App() {
 
     let firstIdx = -1, lastIdx = -1;
     for (let i = 0; i < source.length; i++) {
-      const hasAny = selectedCategories.some(c => typeof source[i][c] === "number" && isFinite(source[i][c]));
+      const hasAny = selectedMetrics.some(c => typeof source[i][c] === "number" && isFinite(source[i][c]));
       if (hasAny) { firstIdx = i; break; }
     }
     for (let i = source.length - 1; i >= 0; i--) {
-      const hasAny = selectedCategories.some(c => typeof source[i][c] === "number" && isFinite(source[i][c]));
+      const hasAny = selectedMetrics.some(c => typeof source[i][c] === "number" && isFinite(source[i][c]));
       if (hasAny) { lastIdx = i; break; }
     }
     if (firstIdx === -1 || lastIdx === -1) return;
@@ -833,13 +891,13 @@ export default function App() {
     setDateStart(start);
     setDateEnd(end);
     // Don't mark touched – keep auto-fitting until user interacts.
-  }, [metric, r12Data, r12ValueData, selectedCategories, minMonthStr, maxMonthStr]);
+  }, [metric, r12Data, r12ValueData, selectedMetrics, minMonthStr, maxMonthStr]);
 
   const summaryStats = useMemo(() => {
     const stats = {};
     const source =
       metric === "r12" ? r12Data : metric === "r12Value" ? r12ValueData : chartData;
-    for (const cat of selectedCategories) {
+    for (const cat of selectedMetrics) {
       const vals = source.map((d) => d[cat]).filter((v) => typeof v === "number" && isFinite(v));
       if (!vals.length) continue;
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -847,11 +905,11 @@ export default function App() {
       stats[cat] = { avg, latest };
     }
     return stats;
-  }, [chartData, r12Data, selectedCategories, metric]);
+  }, [chartData, r12Data, selectedMetrics, metric]);
 
   // Branch-level totals (Value metric only)
   const branchSummary = useMemo(() => {
-    if (!rows.length || !selectedCategories.length) return { rows: [], totals: {} };
+    if (!rows.length || !selectedMetrics.length) return { rows: [], totals: {} };
 
     const startKey = keyFromStr(dateStart);
     const endKey = keyFromStr(dateEnd);
@@ -865,18 +923,18 @@ export default function App() {
     };
 
     const byBranch = new Map(); // branch -> { [cat]: sum, __total: sum }
-    const totals = Object.fromEntries(selectedCategories.map((c) => [c, 0]));
+    const totals = Object.fromEntries(selectedMetrics.map((c) => [c, 0]));
     let grand = 0;
 
     for (const r of rows) {
       if (!matchBranch(r)) continue;
       const k = ymToKey(r.Year, r.Month);
       if (hasRange && (k < startKey || k > endKey)) continue;
-      if (!selectedCategories.includes(r.Category)) continue;
+      if (!selectedMetrics.includes(r.Category)) continue;
 
       const b = (r.Branch && String(r.Branch).trim()) || "(Blank)";
       if (!byBranch.has(b)) {
-        const init = Object.fromEntries(selectedCategories.map((c) => [c, 0]));
+        const init = Object.fromEntries(selectedMetrics.map((c) => [c, 0]));
         init.__total = 0;
         byBranch.set(b, init);
       }
@@ -893,7 +951,7 @@ export default function App() {
       .sort((a, b) => a.Branch.localeCompare(b.Branch, undefined, { numeric: true }));
 
     return { rows: outRows, totals: { ...totals, __total: grand } };
-  }, [rows, selectedCategories, selectedBranches, dateStart, dateEnd]);
+  }, [rows, selectedMetrics, selectedBranches, dateStart, dateEnd]);
 
   // Load dataset when selection changes
   useEffect(() => {
@@ -943,25 +1001,34 @@ export default function App() {
     localStorage.setItem("psdash:v1", JSON.stringify(payload));
   }, [dataset, viewMode, selectedBranches, dateStart, dateEnd, metric]);
 
-  const categoryColors = useMemo(() => {
-    const overrides = { ...(datasetConfig?.colors || {}), ...BRAND_COLOR_OVERRIDES };
-    if (!allCategories.length) return overrides;
-    return getPersistentColorMap(allCategories, COLOR_STORAGE_KEY, overrides);
-  }, [allCategories, datasetConfig]);
-
-  const toggleCategory = (c) => {
-    setSelectedCategories((prev) =>
-      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
-    );
-  };
+  const metricColors = useMemo(() => {
+    const paletteOverrides = {};
+    const availableSet = new Set(allMetrics);
+    Object.entries(DEPT_MAP).forEach(([dept, metrics]) => {
+      const palette = DEPARTMENT_PALETTES[dept] || [];
+      const relevant = metrics.filter((metric) => availableSet.has(metric));
+      relevant.forEach((metric, index) => {
+        if (palette[index]) {
+          paletteOverrides[metric] = palette[index];
+        }
+      });
+    });
+    const overrides = {
+      ...paletteOverrides,
+      ...(datasetConfig?.colors || {}),
+      ...BRAND_COLOR_OVERRIDES,
+    };
+    if (!allMetrics.length) return overrides;
+    return getPersistentColorMap(allMetrics, COLOR_STORAGE_KEY, overrides);
+  }, [allMetrics, datasetConfig]);
 
   const downloadViewCsv = () => {
     const source =
       metric === "r12" ? r12Data : metric === "r12Value" ? r12ValueData : chartData;
     if (!source.length) return;
-    const header = ["Year", "Month", "Label", ...selectedCategories];
+    const header = ["Year", "Month", "Label", ...selectedMetrics];
     const rowsForExport = source.map((d) => [
-      d.Year, d.Month, d.month, ...selectedCategories.map((c) => d[c] ?? "")
+      d.Year, d.Month, d.month, ...selectedMetrics.map((c) => d[c] ?? "")
     ]);
     const csv = [[...header], ...rowsForExport].map(r =>
       r.map(x => (x == null ? "" : String(x).includes(",") ? `"${String(x).replace(/"/g, '""')}"` : x)).join(",")
@@ -992,8 +1059,8 @@ export default function App() {
       ? `Rolling 12 ${datasetLabel}`
       : datasetLabel;
   const activeHover =
-    hoveredCategory && selectedCategories.includes(hoveredCategory)
-      ? hoveredCategory
+    hoveredMetric && selectedMetrics.includes(hoveredMetric)
+      ? hoveredMetric
       : null;
 
   const thCell = useMemo(
@@ -1355,36 +1422,26 @@ export default function App() {
             </div>
           </div>
 
-          {/* Category chips */}
+          {/* Category picker */}
           <div style={{ marginTop: 16 }}>
-            <strong>Categories:</strong><br />
-            {allCategories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => toggleCategory(cat)}
-                onMouseEnter={() => setHoveredCategory(cat)}
-                onMouseLeave={() =>
-                  setHoveredCategory((prev) => (prev === cat ? null : prev))
-                }
-                style={{
-                  margin: 4,
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  border: `1px solid ${
-                    selectedCategories.includes(cat)
-                      ? categoryColors[cat] || theme.primarySurface
-                      : theme.controlBorder
-                  }`,
-                  background: selectedCategories.includes(cat)
-                    ? categoryColors[cat] || theme.primarySurface
-                    : theme.controlSurface,
-                  color: selectedCategories.includes(cat) ? theme.primaryText : theme.controlText,
-                  cursor: "pointer",
-                }}
-              >
-                {cat}
-              </button>
-            ))}
+            <CategoryPicker
+              selectedMetrics={selectedMetrics}
+              onChange={(next) => {
+                setSelectedMetrics(next);
+                setHoveredMetric((prev) => (prev && next.includes(prev) ? prev : null));
+              }}
+              availableMetrics={allMetrics}
+              theme={{
+                surface: theme.surface,
+                border: theme.border,
+                shadow: theme.shadow,
+                textPrimary: theme.textPrimary,
+                textMuted: theme.textMuted,
+                controlSurface: theme.controlSurface,
+                controlBorder: theme.controlBorder,
+                controlText: theme.controlText,
+              }}
+            />
           </div>
 
           {/* Chart */}
@@ -1444,30 +1501,30 @@ export default function App() {
                   <Legend
                     wrapperStyle={{ color: theme.chartLegend }}
                     onMouseEnter={(o) => {
-                      if (o?.value) setHoveredCategory(o.value);
+                      if (o?.value) setHoveredMetric(o.value);
                     }}
-                    onMouseLeave={() => setHoveredCategory(null)}
+                    onMouseLeave={() => setHoveredMetric(null)}
                   />
                   <ReferenceLine y={0} stroke={theme.chartReference} strokeDasharray="3 3" />
-                  {selectedCategories.map((cat) => (
+                  {selectedMetrics.map((cat) => (
                     <Line
                       key={cat}
                       type="monotone"
                       dataKey={cat}
-                      stroke={categoryColors[cat] || theme.primarySurface}
+                      stroke={metricColors[cat] || theme.primarySurface}
                       strokeWidth={activeHover === cat ? 2.75 : 2}
                       strokeOpacity={activeHover && activeHover !== cat ? 0.25 : 1}
                       dot={{
                         r: 2,
-                        stroke: categoryColors[cat] || theme.primarySurface,
-                        fill: categoryColors[cat] || theme.primarySurface,
+                        stroke: metricColors[cat] || theme.primarySurface,
+                        fill: metricColors[cat] || theme.primarySurface,
                         strokeOpacity: activeHover && activeHover !== cat ? 0.25 : 1,
                         fillOpacity: activeHover && activeHover !== cat ? 0.25 : 1,
                       }}
                       activeDot={{
                         r: 4,
-                        stroke: categoryColors[cat] || theme.primarySurface,
-                        fill: categoryColors[cat] || theme.primarySurface,
+                        stroke: metricColors[cat] || theme.primarySurface,
+                        fill: metricColors[cat] || theme.primarySurface,
                       }}
                       connectNulls
                     />
@@ -1523,16 +1580,16 @@ export default function App() {
                   <Legend
                     wrapperStyle={{ color: theme.chartLegend }}
                     onMouseEnter={(o) => {
-                      if (o?.value) setHoveredCategory(o.value);
+                      if (o?.value) setHoveredMetric(o.value);
                     }}
-                    onMouseLeave={() => setHoveredCategory(null)}
+                    onMouseLeave={() => setHoveredMetric(null)}
                   />
                   <ReferenceLine y={0} stroke={theme.chartReference} strokeDasharray="3 3" />
-                  {selectedCategories.map((cat) => (
+                  {selectedMetrics.map((cat) => (
                     <Bar
                       key={cat}
                       dataKey={cat}
-                      fill={categoryColors[cat] || theme.primarySurface}
+                      fill={metricColors[cat] || theme.primarySurface}
                       fillOpacity={activeHover && activeHover !== cat ? 0.35 : 1}
                     />
                   ))}
@@ -1563,7 +1620,7 @@ export default function App() {
           <div style={{ marginTop: 16 }}>
             <h3 style={{ margin: "0 0 8px 0", textAlign: "center" }}>Summary</h3>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-              {selectedCategories.map((cat) => {
+              {selectedMetrics.map((cat) => {
                 const s = summaryStats[cat];
                 if (!s) return null;
                 return (
@@ -1599,7 +1656,7 @@ export default function App() {
                     <thead>
                       <tr style={{ background: theme.tableHeaderBg }}>
                         <th style={thCell}>Branch</th>
-                        {selectedCategories.map((c) => (
+                        {selectedMetrics.map((c) => (
                           <th key={c} style={{ ...thCell, textAlign: "right" }}>{c}</th>
                         ))}
                         <th style={{ ...thCell, textAlign: "right" }}>Total</th>
@@ -1609,7 +1666,7 @@ export default function App() {
                       {branchSummary.rows.map((r) => (
                         <tr key={r.Branch} style={{ borderTop: `1px solid ${theme.tableRowBorder}` }}>
                           <td style={tdCell}>{r.Branch}</td>
-                          {selectedCategories.map((c) => (
+                          {selectedMetrics.map((c) => (
                             <td key={c} style={{ ...tdCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                               {fmtValue(r[c] || 0, datasetConfig)}
                             </td>
@@ -1623,7 +1680,7 @@ export default function App() {
                     <tfoot>
                       <tr style={{ borderTop: `2px solid ${theme.borderStrong}`, background: theme.tableFooterBg }}>
                         <td style={{ ...tdCell, fontWeight: 700 }}>Total</td>
-                        {selectedCategories.map((c) => (
+                        {selectedMetrics.map((c) => (
                           <td key={c} style={{ ...tdCell, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                             {fmtValue(branchSummary.totals[c] || 0, datasetConfig)}
                           </td>
