@@ -59,7 +59,7 @@ const formatAbbrev = (n) => {
 };
 const fmtValue = (v, dataset) => {
   if (typeof v !== "number") return v;
-  if (dataset === "Historical_All") {
+  if (dataset === "Historical_Sales") {
     const abs = Math.abs(v);
     if (abs >= 1000) {
       const text = formatAbbrev(v);
@@ -97,7 +97,7 @@ function usePrefersDark() {
   return isDark;
 }
 
-const DEFAULT_DATASET = "Historical_All";
+const DEFAULT_DATASET = "Historical_Sales";
 
 export default function App() {
   const [rows, setRows] = useState([]);
@@ -259,7 +259,7 @@ export default function App() {
   };
 
   const datasetFiles = {
-    [DEFAULT_DATASET]: "/historical_all.csv",
+    [DEFAULT_DATASET]: "/historical_sales.csv",
   };
 
   const normalizeParsedRows = (data, metaFields) => {
@@ -342,7 +342,7 @@ export default function App() {
   // Default categories prefer Total (if present) for a quick summary
   const pickDefaultCategories = (cats) => {
     if (!Array.isArray(cats) || !cats.length) return [];
-    if (cats.includes("Total")) return ["Total"];
+    if (cats.includes("Total Equipment")) return ["Total Equipment"];
     return cats.slice(0, Math.min(2, cats.length));
   };
 
@@ -669,11 +669,14 @@ export default function App() {
   }, []);
 
   const categoryColors = {
-    Equipment: "#2563EB",
-    Rental: "#7C3AED",
-    Parts: "#0EA5E9",
-    Service: "#F97316",
-    Total: "#FACC15",
+    "New Equipment Sales": "#2563EB",
+    "Used Equipment Sales": "#7C3AED",
+    "RPO Sales": "#0EA5E9",
+    "Re-Marketing Sales": "#F97316",
+    "Trade-In Sales": "#F43F5E",
+    "RtoR Sales": "#10B981",
+    Other: "#94A3B8",
+    "Total Equipment": "#FACC15",
   };
 
   const toggleCategory = (c) => {
@@ -709,7 +712,7 @@ export default function App() {
 
   const chartSource =
     metric === "r12" ? r12Data : metric === "r12Value" ? r12ValueData : chartData;
-  const datasetLabel = "Historical All ($)";
+  const datasetLabel = "Historical Equipment Sales ($)";
   const chartTitle =
     metric === "r12"
       ? "R12 Growth %"
@@ -755,7 +758,8 @@ export default function App() {
       <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Product Support Dashboard</h1>
       <p style={{ color: theme.textMuted, marginTop: 6 }}>
         Upload your CSV (
-        Year, Period, Branch, Equipment, Rental, Parts, Service, Total
+        Year, Period, Branch, New Equipment Sales, Used Equipment Sales, RPO Sales,
+        Re-Marketing Sales, Trade-In Sales, RtoR Sales, Other, Total Equipment
         ). Values for selected branches are summed.
       </p>
 
@@ -764,7 +768,7 @@ export default function App() {
         <div className="field">
           <label className="label">Dataset</label>
           <select className="select" value={dataset} onChange={(e) => setDataset(e.target.value)}>
-            <option value={DEFAULT_DATASET}>Historical_All</option>
+            <option value={DEFAULT_DATASET}>Historical_Sales</option>
           </select>
         </div>
 
