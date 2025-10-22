@@ -1027,7 +1027,7 @@ export default function App() {
         color: theme.textPrimary,
       }}
     >
-      <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Product Support Dashboard</h1>
+      <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Historical Revenue</h1>
       <p style={{ color: theme.textMuted, marginTop: 6 }}>
         Upload your CSV
         {datasetConfig?.instructions ? ` (${datasetConfig.instructions})` : ""}.
