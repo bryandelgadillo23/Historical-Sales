@@ -73,9 +73,10 @@ const formatAbbrev = (n) => {
   if (abs >= 1_000)         return fmt(n / 1_000, "K");
   return new Intl.NumberFormat().format(n);
 };
-const DATASET_CONFIGS = {
-  Historical_All: {
-    file: "/historical_all.csv",
+
+const DATASET_OVERRIDES = {
+  "historical_all.csv": {
+    id: "Historical_All",
     label: "Historical All ($)",
     instructions:
       "Year, Period, Branch, Equipment, Rental, Parts, Service, Total",
@@ -89,8 +90,8 @@ const DATASET_CONFIGS = {
     defaultCategory: "Total",
     valueType: "currency",
   },
-  Historical_Sales: {
-    file: "/historical_sales.csv",
+  "historical_sales.csv": {
+    id: "Historical_Sales",
     label: "Historical Equipment Sales ($)",
     instructions:
       "Year, Period, Branch, New Equipment Sales, Used Equipment Sales, RPO Sales, Re-Marketing Sales, Trade-In Sales, RtoR Sales, Other, Total Equipment",
@@ -109,14 +110,78 @@ const DATASET_CONFIGS = {
   },
 };
 
-const DATASET_FILE_MAP = Object.fromEntries(
-  Object.entries(DATASET_CONFIGS).map(([key, cfg]) => [key, cfg.file])
-);
+const DEFAULT_DATASET = "Historical_All";
 
-const fmtValue = (v, dataset) => {
+const splitFileSegments = (fileName) =>
+  fileName
+    .replace(/\.csv$/i, "")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+
+const capitalize = (segment) =>
+  segment ? segment.charAt(0).toUpperCase() + segment.slice(1) : segment;
+
+const buildDatasetEntry = (fileName, meta = {}) => {
+  if (!fileName) return null;
+  const override = DATASET_OVERRIDES[fileName] || {};
+  const segments = splitFileSegments(fileName);
+  const defaultId = segments.length
+    ? segments.map((seg) => capitalize(seg)).join("_")
+    : fileName.replace(/\.csv$/i, "");
+  const defaultLabel = segments.length
+    ? segments.map((seg) => capitalize(seg)).join(" ")
+    : fileName.replace(/\.csv$/i, "");
+
+  return {
+    id: override.id || defaultId,
+    label: override.label || defaultLabel || fileName,
+    file: `/${fileName}`,
+    fileName,
+    instructions: override.instructions || null,
+    colors: override.colors ? { ...override.colors } : undefined,
+    defaultCategory: override.defaultCategory || null,
+    valueType: override.valueType || null,
+    size: typeof meta.size === "number" ? meta.size : null,
+    lastModified: meta.lastModified || null,
+  };
+};
+
+const normalizeDatasetRecords = (records) => {
+  if (!Array.isArray(records)) return [];
+  const map = new Map();
+  for (const record of records) {
+    if (!record || !record.file) continue;
+    const entry = buildDatasetEntry(record.file, record);
+    if (!entry) continue;
+    if (map.has(entry.id)) {
+      const existing = map.get(entry.id);
+      map.set(entry.id, {
+        ...existing,
+        size: existing.size ?? entry.size,
+        lastModified: existing.lastModified ?? entry.lastModified,
+      });
+    } else {
+      map.set(entry.id, entry);
+    }
+  }
+
+  const entries = Array.from(map.values());
+  entries.sort((a, b) => {
+    if (a.id === DEFAULT_DATASET) return -1;
+    if (b.id === DEFAULT_DATASET) return 1;
+    const aLabel = a.label || a.id;
+    const bLabel = b.label || b.id;
+    return aLabel.localeCompare(bLabel, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+  return entries;
+};
+
+const fmtValue = (v, datasetConfig) => {
   if (typeof v !== "number") return v;
-  const config = DATASET_CONFIGS[dataset];
-  if (config?.valueType === "currency") {
+  if (datasetConfig?.valueType === "currency") {
     const abs = Math.abs(v);
     if (abs >= 1000) {
       const text = formatAbbrev(v);
@@ -134,6 +199,26 @@ const fmtPct = (v) =>
   typeof v === "number" && isFinite(v)
     ? `${(v * 100).toFixed(Math.abs(v) < 0.1 ? 2 : 1)}%`
     : "";
+
+const formatFileSize = (bytes) => {
+  if (bytes == null || !Number.isFinite(bytes)) return null;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+};
+
+const formatTimestamp = (iso) => {
+  if (!iso) return null;
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toLocaleString();
+};
 
 // Sentinel for multi-select "All"
 const ALL = "__ALL__";
@@ -154,8 +239,6 @@ function usePrefersDark() {
   return isDark;
 }
 
-const DEFAULT_DATASET = "Historical_All";
-
 export default function App() {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
@@ -168,11 +251,19 @@ export default function App() {
   const [selectedBranches, setSelectedBranches] = useState([ALL]);
 
   const [dataset, setDataset] = useState(DEFAULT_DATASET);
+  const [availableDatasets, setAvailableDatasets] = useState([]);
   const [hoveredCategory, setHoveredCategory] = useState(null);
 
+  const datasetMap = useMemo(
+    () => Object.fromEntries(availableDatasets.map((d) => [d.id, d])),
+    [availableDatasets]
+  );
+  const datasetFiles = useMemo(
+    () => Object.fromEntries(availableDatasets.map((d) => [d.id, d.file])),
+    [availableDatasets]
+  );
   const datasetConfig =
-    DATASET_CONFIGS[dataset] || DATASET_CONFIGS[DEFAULT_DATASET];
-  const datasetFiles = DATASET_FILE_MAP;
+    datasetMap[dataset] || datasetMap[DEFAULT_DATASET] || availableDatasets[0] || null;
 
   // Date range + hard limits
   const [dateStart, setDateStart] = useState("");
@@ -182,6 +273,7 @@ export default function App() {
 
   // Track if user explicitly set a date range (so we can preserve it across dataset switches)
   const userRangeRef = useRef({ touched: false, start: null, end: null });
+  const savedPrefsRef = useRef();
   const isDark = usePrefersDark();
   const theme = useMemo(
     () =>
@@ -258,6 +350,99 @@ export default function App() {
           },
     [isDark]
   );
+
+  useEffect(() => {
+    if (savedPrefsRef.current !== undefined) return;
+    try {
+      const raw = localStorage.getItem("psdash:v1");
+      if (!raw) {
+        savedPrefsRef.current = null;
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      savedPrefsRef.current =
+        parsed && typeof parsed === "object" ? parsed : null;
+    } catch (err) {
+      console.error(err);
+      savedPrefsRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const fallbackDatasets = () =>
+      normalizeDatasetRecords(
+        Object.keys(DATASET_OVERRIDES).map((file) => ({ file }))
+      );
+
+    async function loadDatasets() {
+      try {
+        const resp = await fetch("/dataset-list.json", { cache: "no-store" });
+        if (!resp.ok) {
+          throw new Error(`Failed to load dataset list (${resp.status})`);
+        }
+        const json = await resp.json();
+        const records = Array.isArray(json?.datasets)
+          ? json.datasets
+          : Array.isArray(json)
+          ? json
+          : [];
+        const normalized = normalizeDatasetRecords(records);
+        if (ignore) return;
+        if (normalized.length) setAvailableDatasets(normalized);
+        else setAvailableDatasets(fallbackDatasets());
+      } catch (err) {
+        console.error(err);
+        if (ignore) return;
+        const fallback = fallbackDatasets();
+        if (fallback.length) {
+          setAvailableDatasets(fallback);
+        } else {
+          setError((prev) => prev || "No CSV datasets found in public/ directory.");
+        }
+      }
+    }
+
+    loadDatasets();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!availableDatasets.length) return;
+
+    const availableIds = new Set(availableDatasets.map((d) => d.id));
+    const fallbackId = availableIds.has(DEFAULT_DATASET)
+      ? DEFAULT_DATASET
+      : availableDatasets[0]?.id;
+
+    const saved = savedPrefsRef.current;
+    if (saved !== undefined) {
+      const prefs = saved && typeof saved === "object" ? saved : {};
+      if (prefs.viewMode) setViewMode(prefs.viewMode);
+      if (Array.isArray(prefs.selectedBranches) && prefs.selectedBranches.length)
+        setSelectedBranches(prefs.selectedBranches);
+      if (prefs.dateStart) setDateStart(prefs.dateStart);
+      if (prefs.dateEnd) setDateEnd(prefs.dateEnd);
+      if (prefs.metric) setMetric(prefs.metric);
+
+      if (prefs.dataset && availableIds.has(prefs.dataset)) {
+        setDataset(prefs.dataset);
+      } else if (fallbackId && dataset !== fallbackId) {
+        setDataset(fallbackId);
+      }
+
+      savedPrefsRef.current = undefined;
+      return;
+    }
+
+    if (!availableIds.has(dataset) && fallbackId && dataset !== fallbackId) {
+      setDataset(fallbackId);
+    }
+  }, [availableDatasets]);
 
   const onStartChange = (s) => {
     const clamped = clampYM(s, minMonthStr, maxMonthStr);
@@ -695,15 +880,26 @@ export default function App() {
     return { rows: outRows, totals: { ...totals, __total: grand } };
   }, [rows, selectedCategories, selectedBranches, dateStart, dateEnd]);
 
-  // Load default dataset
+  // Load dataset when selection changes
   useEffect(() => {
+    if (!availableDatasets.length) return;
+
+    const fallbackEntry =
+      datasetMap[DEFAULT_DATASET] || availableDatasets[0] || null;
+    const fallbackId = fallbackEntry?.id;
+    const targetFile = datasetFiles[dataset];
+
+    if (!targetFile) {
+      if (fallbackId && dataset !== fallbackId) setDataset(fallbackId);
+      return;
+    }
+
     const controller = new AbortController();
     let cancelled = false;
 
-    async function loadDefaultDataset() {
+    async function loadDatasetFromFile(url) {
       try {
-        const url = datasetFiles[dataset] || datasetFiles[DEFAULT_DATASET];
-        if (!url) throw new Error("No dataset file configured.");
+        setError("");
         const resp = await fetch(url, { signal: controller.signal });
         if (!resp.ok) throw new Error(`Failed to load ${url}`);
         const text = await resp.text();
@@ -718,33 +914,19 @@ export default function App() {
       }
     }
 
-    loadDefaultDataset();
+    loadDatasetFromFile(targetFile);
 
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [dataset]);
+  }, [dataset, datasetFiles, availableDatasets, datasetMap]);
 
   // Persist prefs
   useEffect(() => {
     const payload = { dataset, viewMode, selectedBranches, dateStart, dateEnd, metric };
     localStorage.setItem("psdash:v1", JSON.stringify(payload));
   }, [dataset, viewMode, selectedBranches, dateStart, dateEnd, metric]);
-
-  // Restore prefs
-  useEffect(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem("psdash:v1") || "{}");
-      if (s.dataset && datasetFiles[s.dataset]) setDataset(s.dataset);
-      else setDataset(DEFAULT_DATASET);
-      if (s.viewMode) setViewMode(s.viewMode);
-      if (Array.isArray(s.selectedBranches) && s.selectedBranches.length) setSelectedBranches(s.selectedBranches);
-      if (s.dateStart) setDateStart(s.dateStart);
-      if (s.dateEnd) setDateEnd(s.dateEnd);
-      if (s.metric) setMetric(s.metric);
-    } catch {}
-  }, []);
 
   const categoryColors = useMemo(() => {
     const overrides = { ...(datasetConfig?.colors || {}), ...BRAND_COLOR_OVERRIDES };
@@ -785,7 +967,9 @@ export default function App() {
 
   const chartSource =
     metric === "r12" ? r12Data : metric === "r12Value" ? r12ValueData : chartData;
-  const datasetLabel = datasetConfig?.label || dataset;
+  const datasetLabel = datasetConfig?.label || datasetConfig?.id || dataset;
+  const datasetSizeText = formatFileSize(datasetConfig?.size);
+  const datasetUpdatedText = formatTimestamp(datasetConfig?.lastModified);
   const chartTitle =
     metric === "r12"
       ? "R12 Growth %"
@@ -830,21 +1014,42 @@ export default function App() {
     >
       <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Product Support Dashboard</h1>
       <p style={{ color: theme.textMuted, marginTop: 6 }}>
-        Upload your CSV ({datasetConfig?.instructions}). Values for selected
-        branches are summed.
+        Upload your CSV
+        {datasetConfig?.instructions ? ` (${datasetConfig.instructions})` : ""}.
+        Values for selected branches are summed.
       </p>
 
       {/* Top controls */}
       <div className="toolbar">
         <div className="field">
           <label className="label">Dataset</label>
-          <select className="select" value={dataset} onChange={(e) => setDataset(e.target.value)}>
-            {Object.keys(DATASET_CONFIGS).map((key) => (
-              <option key={key} value={key}>
-                {key}
+          <select
+            className="select"
+            value={availableDatasets.length ? dataset : ""}
+            onChange={(e) => setDataset(e.target.value)}
+            disabled={!availableDatasets.length}
+          >
+            {availableDatasets.length ? (
+              availableDatasets.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label || option.id}
+                </option>
+              ))
+            ) : (
+              <option value="" disabled>
+                Loading datasets...
               </option>
-            ))}
+            )}
           </select>
+          {(datasetSizeText || datasetUpdatedText) && (
+            <div className="dataset-meta">
+              {datasetSizeText && <span>Size: {datasetSizeText}</span>}
+              {datasetSizeText && datasetUpdatedText && (
+                <span className="dataset-meta__bullet" aria-hidden="true">•</span>
+              )}
+              {datasetUpdatedText && <span>Updated: {datasetUpdatedText}</span>}
+            </div>
+          )}
         </div>
 
         <div className="field">
@@ -938,6 +1143,20 @@ export default function App() {
           display: flex;
           flex-direction: column;
           gap: 6px;
+        }
+
+        .dataset-meta {
+          margin-top: 4px;
+          font-size: 12px;
+          color: ${theme.textMuted};
+          display: flex;
+          gap: 6px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .dataset-meta__bullet {
+          color: ${theme.textMuted};
         }
 
         .label {
@@ -1193,7 +1412,9 @@ export default function App() {
                   />
                   <Tooltip
                     labelFormatter={(label) => label}
-                    formatter={(v) => (metric === "r12" ? fmtPct(v) : fmtValue(v, dataset))}
+                    formatter={(v) =>
+                      metric === "r12" ? fmtPct(v) : fmtValue(v, datasetConfig)
+                    }
                     contentStyle={{
                       backgroundColor: theme.tooltipBackground,
                       border: `1px solid ${theme.tooltipBorder}`,
@@ -1270,7 +1491,9 @@ export default function App() {
                   />
                   <Tooltip
                     labelFormatter={(label) => label}
-                    formatter={(v) => (metric === "r12" ? fmtPct(v) : fmtValue(v, dataset))}
+                    formatter={(v) =>
+                      metric === "r12" ? fmtPct(v) : fmtValue(v, datasetConfig)
+                    }
                     contentStyle={{
                       backgroundColor: theme.tooltipBackground,
                       border: `1px solid ${theme.tooltipBorder}`,
@@ -1332,10 +1555,10 @@ export default function App() {
                   <div key={cat} className="summary-card" style={{ flex: "1 1 220px" }}>
                     <div className="summary-title">{cat}</div>
                     <div className="summary-row">
-                      Latest: <b>{metric === "r12" ? fmtPct(s.latest) : fmtValue(s.latest, dataset)}</b>
+                      Latest: <b>{metric === "r12" ? fmtPct(s.latest) : fmtValue(s.latest, datasetConfig)}</b>
                     </div>
                     <div className="summary-row">
-                      Avg: <b>{metric === "r12" ? fmtPct(s.avg) : fmtValue(s.avg, dataset)}</b>
+                      Avg: <b>{metric === "r12" ? fmtPct(s.avg) : fmtValue(s.avg, datasetConfig)}</b>
                     </div>
                   </div>
                 );
@@ -1373,11 +1596,11 @@ export default function App() {
                           <td style={tdCell}>{r.Branch}</td>
                           {selectedCategories.map((c) => (
                             <td key={c} style={{ ...tdCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                              {fmtValue(r[c] || 0, dataset)}
+                              {fmtValue(r[c] || 0, datasetConfig)}
                             </td>
                           ))}
                           <td style={{ ...tdCell, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                            {fmtValue(r.__total || 0, dataset)}
+                            {fmtValue(r.__total || 0, datasetConfig)}
                           </td>
                         </tr>
                       ))}
@@ -1387,11 +1610,11 @@ export default function App() {
                         <td style={{ ...tdCell, fontWeight: 700 }}>Total</td>
                         {selectedCategories.map((c) => (
                           <td key={c} style={{ ...tdCell, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                            {fmtValue(branchSummary.totals[c] || 0, dataset)}
+                            {fmtValue(branchSummary.totals[c] || 0, datasetConfig)}
                           </td>
                         ))}
                         <td style={{ ...tdCell, textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
-                          {fmtValue(branchSummary.totals.__total || 0, dataset)}
+                          {fmtValue(branchSummary.totals.__total || 0, datasetConfig)}
                         </td>
                       </tr>
                     </tfoot>

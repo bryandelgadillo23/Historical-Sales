@@ -1,0 +1,24 @@
+{
+  "datasets": [
+    {
+      "file": "historical_all.csv",
+      "size": 71460,
+      "lastModified": "2025-10-22T19:29:43.632Z"
+    },
+    {
+      "file": "historical_parts.csv",
+      "size": 101580,
+      "lastModified": "2025-10-22T20:34:30.189Z"
+    },
+    {
+      "file": "historical_rental.csv",
+      "size": 55739,
+      "lastModified": "2025-10-22T20:34:30.193Z"
+    },
+    {
+      "file": "historical_sales.csv",
+      "size": 59944,
+      "lastModified": "2025-10-22T20:34:30.193Z"
+    }
+  ]
+}
