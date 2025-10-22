@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Papa from "papaparse";
 import {
   LineChart,
@@ -57,9 +57,50 @@ const formatAbbrev = (n) => {
   if (abs >= 1_000)         return fmt(n / 1_000, "K");
   return new Intl.NumberFormat().format(n);
 };
+const DATASET_CONFIGS = {
+  Historical_All: {
+    file: "/historical_all.csv",
+    label: "Historical All ($)",
+    instructions:
+      "Year, Period, Branch, Equipment, Rental, Parts, Service, Total",
+    colors: {
+      Equipment: "#2563EB",
+      Rental: "#7C3AED",
+      Parts: "#0EA5E9",
+      Service: "#F97316",
+      Total: "#FACC15",
+    },
+    defaultCategory: "Total",
+    valueType: "currency",
+  },
+  Historical_Sales: {
+    file: "/historical_sales.csv",
+    label: "Historical Equipment Sales ($)",
+    instructions:
+      "Year, Period, Branch, New Equipment Sales, Used Equipment Sales, RPO Sales, Re-Marketing Sales, Trade-In Sales, RtoR Sales, Other, Total Equipment",
+    colors: {
+      "New Equipment Sales": "#2563EB",
+      "Used Equipment Sales": "#7C3AED",
+      "RPO Sales": "#0EA5E9",
+      "Re-Marketing Sales": "#F97316",
+      "Trade-In Sales": "#F43F5E",
+      "RtoR Sales": "#10B981",
+      Other: "#94A3B8",
+      "Total Equipment": "#FACC15",
+    },
+    defaultCategory: "Total Equipment",
+    valueType: "currency",
+  },
+};
+
+const DATASET_FILE_MAP = Object.fromEntries(
+  Object.entries(DATASET_CONFIGS).map(([key, cfg]) => [key, cfg.file])
+);
+
 const fmtValue = (v, dataset) => {
   if (typeof v !== "number") return v;
-  if (dataset === "Historical_All") {
+  const config = DATASET_CONFIGS[dataset];
+  if (config?.valueType === "currency") {
     const abs = Math.abs(v);
     if (abs >= 1000) {
       const text = formatAbbrev(v);
@@ -112,6 +153,10 @@ export default function App() {
 
   const [dataset, setDataset] = useState(DEFAULT_DATASET);
   const [hoveredCategory, setHoveredCategory] = useState(null);
+
+  const datasetConfig =
+    DATASET_CONFIGS[dataset] || DATASET_CONFIGS[DEFAULT_DATASET];
+  const datasetFiles = DATASET_FILE_MAP;
 
   // Date range + hard limits
   const [dateStart, setDateStart] = useState("");
@@ -258,10 +303,6 @@ export default function App() {
     userRangeRef.current = { touched: true, start, end: maxMonthStr };
   };
 
-  const datasetFiles = {
-    [DEFAULT_DATASET]: "/historical_all.csv",
-  };
-
   const normalizeParsedRows = (data, metaFields) => {
     const records = Array.isArray(data) ? data : [];
     const headers = (metaFields && metaFields.length ? metaFields : Object.keys(records[0] || {}))
@@ -339,12 +380,16 @@ export default function App() {
       });
     });
 
-  // Default categories prefer Total (if present) for a quick summary
-  const pickDefaultCategories = (cats) => {
-    if (!Array.isArray(cats) || !cats.length) return [];
-    if (cats.includes("Total")) return ["Total"];
-    return cats.slice(0, Math.min(2, cats.length));
-  };
+  // Default categories prefer dataset-configured total for a quick summary
+  const pickDefaultCategories = useCallback(
+    (cats) => {
+      if (!Array.isArray(cats) || !cats.length) return [];
+      const preferred = datasetConfig?.defaultCategory;
+      if (preferred && cats.includes(preferred)) return [preferred];
+      return cats.slice(0, Math.min(2, cats.length));
+    },
+    [datasetConfig]
+  );
 
   // Apply parsed data to state (preserve user range if they've touched it)
   const hydrateFromParsed = (parsed) => {
@@ -668,13 +713,7 @@ export default function App() {
     } catch {}
   }, []);
 
-  const categoryColors = {
-    Equipment: "#2563EB",
-    Rental: "#7C3AED",
-    Parts: "#0EA5E9",
-    Service: "#F97316",
-    Total: "#FACC15",
-  };
+  const categoryColors = datasetConfig?.colors || {};
 
   const toggleCategory = (c) => {
     setSelectedCategories((prev) =>
@@ -709,7 +748,7 @@ export default function App() {
 
   const chartSource =
     metric === "r12" ? r12Data : metric === "r12Value" ? r12ValueData : chartData;
-  const datasetLabel = "Historical All ($)";
+  const datasetLabel = datasetConfig?.label || dataset;
   const chartTitle =
     metric === "r12"
       ? "R12 Growth %"
@@ -754,9 +793,8 @@ export default function App() {
     >
       <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Product Support Dashboard</h1>
       <p style={{ color: theme.textMuted, marginTop: 6 }}>
-        Upload your CSV (
-        Year, Period, Branch, Equipment, Rental, Parts, Service, Total
-        ). Values for selected branches are summed.
+        Upload your CSV ({datasetConfig?.instructions}). Values for selected
+        branches are summed.
       </p>
 
       {/* Top controls */}
@@ -764,7 +802,11 @@ export default function App() {
         <div className="field">
           <label className="label">Dataset</label>
           <select className="select" value={dataset} onChange={(e) => setDataset(e.target.value)}>
-            <option value={DEFAULT_DATASET}>Historical_All</option>
+            {Object.keys(DATASET_CONFIGS).map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
           </select>
         </div>
 
