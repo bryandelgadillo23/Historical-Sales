@@ -339,13 +339,11 @@ export default function App() {
       });
     });
 
-  // Default categories prefer Parts All + Service All
+  // Default categories prefer Total (if present) for a quick summary
   const pickDefaultCategories = (cats) => {
-    const want = [];
-    if (cats.includes("Parts All")) want.push("Parts All");
-    if (cats.includes("Service All")) want.push("Service All");
-    if (!want.length) want.push(...cats.slice(0, 2));
-    return want;
+    if (!Array.isArray(cats) || !cats.length) return [];
+    if (cats.includes("Total")) return ["Total"];
+    return cats.slice(0, Math.min(2, cats.length));
   };
 
   // Apply parsed data to state (preserve user range if they've touched it)
@@ -669,17 +667,11 @@ export default function App() {
   }, []);
 
   const categoryColors = {
-    "Parts Counter": "#007AFF",
-    "Parts Shop": "#9B59B6",
-    "Parts Other": "#00B8D9",
-    "Parts All": "#1A237E",
-    "Service All": "#006400",
-    "Service Customer": "#00A86B",
-    "Service CSA": "#20B2AA",
-    "Service Internal": "#E53935",
-    "Service Sublet": "#EC407A",
-    "Service Warranty": "#F39C12",
-    "Service ACAP": "#C56A1D",
+    Equipment: "#2563EB",
+    Rental: "#7C3AED",
+    Parts: "#0EA5E9",
+    Service: "#F97316",
+    Total: "#FACC15",
   };
 
   const toggleCategory = (c) => {
