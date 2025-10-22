@@ -108,6 +108,21 @@ const DATASET_OVERRIDES = {
     defaultCategory: "Total Equipment",
     valueType: "currency",
   },
+  "historical_service.csv": {
+    id: "Historical_Service",
+    label: "Historical Service ($)",
+    instructions:
+      "Year, Period, Branch, Customer, Warranty, Internal, Sublet, Total Service",
+    colors: {
+      Customer: "#2563EB",
+      Warranty: "#7C3AED",
+      Internal: "#0EA5E9",
+      Sublet: "#F97316",
+      "Total Service": "#FACC15",
+    },
+    defaultCategory: "Total Service",
+    valueType: "currency",
+  },
 };
 
 const DEFAULT_DATASET = "Historical_All";
