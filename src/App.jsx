@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Papa from "papaparse";
+import { getPersistentColorMap } from "./color-utils";
 import {
   LineChart,
   Line,
@@ -18,6 +19,21 @@ import {
 const monthNames = [
   "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec",
 ];
+
+const DIMENSION_COLUMN_NAMES = new Set([
+  "date",
+  "month",
+  "year",
+  "period",
+  "branch",
+]);
+
+const COLOR_STORAGE_KEY = "salesSeriesColorMap";
+
+const BRAND_COLOR_OVERRIDES = {
+  "Parts All": "#1f77b4",
+  "Service All": "#2ca02c",
+};
 
 // YYYY-MM helpers
 const ymToKey = (y, m) => y * 100 + m;
@@ -317,7 +333,9 @@ export default function App() {
     if (!yearCol || !periodCol) throw new Error("Missing Year or Period/Month columns.");
 
     const idSet = new Set([yearCol, periodCol, branchCol].filter(Boolean));
-    const catCols = headers.filter((h) => h && !idSet.has(h));
+    const catCols = headers
+      .filter((h) => h && !idSet.has(h))
+      .filter((h) => !DIMENSION_COLUMN_NAMES.has(String(h).trim().toLowerCase()));
 
     const parsed = [];
     for (const row of records) {
@@ -441,6 +459,21 @@ export default function App() {
     () => [...new Set(rows.map((r) => r.Year))].sort((a, b) => a - b),
     [rows]
   );
+
+  const allCategories = useMemo(() => {
+    const seen = new Set();
+    const ordered = [];
+    for (const row of rows) {
+      const name = row?.Category;
+      if (!name) continue;
+      const normalized = String(name).trim().toLowerCase();
+      if (DIMENSION_COLUMN_NAMES.has(normalized)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      ordered.push(name);
+    }
+    return ordered;
+  }, [rows]);
 
   // Build chart data (Value metric): sum across branches (All or selected subset) and date range
   const chartData = useMemo(() => {
@@ -713,7 +746,11 @@ export default function App() {
     } catch {}
   }, []);
 
-  const categoryColors = datasetConfig?.colors || {};
+  const categoryColors = useMemo(() => {
+    const overrides = { ...(datasetConfig?.colors || {}), ...BRAND_COLOR_OVERRIDES };
+    if (!allCategories.length) return overrides;
+    return getPersistentColorMap(allCategories, COLOR_STORAGE_KEY, overrides);
+  }, [allCategories, datasetConfig]);
 
   const toggleCategory = (c) => {
     setSelectedCategories((prev) =>
@@ -1087,7 +1124,7 @@ export default function App() {
           {/* Category chips */}
           <div style={{ marginTop: 16 }}>
             <strong>Categories:</strong><br />
-            {Array.from(new Set(rows.map((r) => r.Category))).map((cat) => (
+            {allCategories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => toggleCategory(cat)}
