@@ -765,7 +765,11 @@ export default function App() {
     >
       <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Product Support Dashboard</h1>
       <p style={{ color: theme.textMuted, marginTop: 6 }}>
-        Upload your CSV (Year, Period/Month, Branch/Branch Name, category columns). Values for selected branches are summed.
+        Upload your CSV (
+        {dataset === "Historical_All"
+          ? "Year, Period, Branch, Equipment, Rental, Parts, Service, Total"
+          : "Year, Period/Month, Branch/Branch Name, category columns"}
+        ). Values for selected branches are summed.
       </p>
 
       {/* Top controls */}
