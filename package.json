@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/generate-dataset-list.js",
+    "predev": "node scripts/generate-dataset-list.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/generate-dataset-list.js",
+    "prebuild": "node scripts/generate-dataset-list.mjs",
     "build": "vite build",
-    "prepreview": "node scripts/generate-dataset-list.js",
+    "prepreview": "node scripts/generate-dataset-list.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {
