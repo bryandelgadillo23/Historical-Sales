@@ -59,7 +59,7 @@ const formatAbbrev = (n) => {
 };
 const fmtValue = (v, dataset) => {
   if (typeof v !== "number") return v;
-  if (dataset === "revenue") {
+  if (dataset === "Historical_All") {
     const abs = Math.abs(v);
     if (abs >= 1000) {
       const text = formatAbbrev(v);
@@ -97,6 +97,8 @@ function usePrefersDark() {
   return isDark;
 }
 
+const DEFAULT_DATASET = "Historical_All";
+
 export default function App() {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
@@ -108,7 +110,7 @@ export default function App() {
   const [allBranches, setAllBranches] = useState([]);
   const [selectedBranches, setSelectedBranches] = useState([ALL]);
 
-  const [dataset, setDataset] = useState("revenue");
+  const [dataset, setDataset] = useState(DEFAULT_DATASET);
   const [hoveredCategory, setHoveredCategory] = useState(null);
 
   // Date range + hard limits
@@ -257,9 +259,7 @@ export default function App() {
   };
 
   const datasetFiles = {
-    revenue: "/revenue.csv",
-    transactions: "/transactions.csv",
-    quantities: "/quantities.csv",
+    [DEFAULT_DATASET]: "/historical_all.csv",
   };
 
   const normalizeParsedRows = (data, metaFields) => {
@@ -626,7 +626,8 @@ export default function App() {
 
     async function loadDefaultDataset() {
       try {
-        const url = datasetFiles[dataset];
+        const url = datasetFiles[dataset] || datasetFiles[DEFAULT_DATASET];
+        if (!url) throw new Error("No dataset file configured.");
         const resp = await fetch(url, { signal: controller.signal });
         if (!resp.ok) throw new Error(`Failed to load ${url}`);
         const text = await resp.text();
@@ -659,7 +660,8 @@ export default function App() {
   useEffect(() => {
     try {
       const s = JSON.parse(localStorage.getItem("psdash:v1") || "{}");
-      if (s.dataset) setDataset(s.dataset);
+      if (s.dataset && datasetFiles[s.dataset]) setDataset(s.dataset);
+      else setDataset(DEFAULT_DATASET);
       if (s.viewMode) setViewMode(s.viewMode);
       if (Array.isArray(s.selectedBranches) && s.selectedBranches.length) setSelectedBranches(s.selectedBranches);
       if (s.dateStart) setDateStart(s.dateStart);
@@ -715,12 +717,7 @@ export default function App() {
 
   const chartSource =
     metric === "r12" ? r12Data : metric === "r12Value" ? r12ValueData : chartData;
-  const datasetLabel =
-    dataset === "revenue"
-      ? "Revenue ($)"
-      : dataset === "transactions"
-      ? "Transactions"
-      : "Quantities";
+  const datasetLabel = "Historical All ($)";
   const chartTitle =
     metric === "r12"
       ? "R12 Growth %"
@@ -766,9 +763,7 @@ export default function App() {
       <h1 style={{ fontSize: "1.8rem", fontWeight: 700, margin: 0 }}>Product Support Dashboard</h1>
       <p style={{ color: theme.textMuted, marginTop: 6 }}>
         Upload your CSV (
-        {dataset === "Historical_All"
-          ? "Year, Period, Branch, Equipment, Rental, Parts, Service, Total"
-          : "Year, Period/Month, Branch/Branch Name, category columns"}
+        Year, Period, Branch, Equipment, Rental, Parts, Service, Total
         ). Values for selected branches are summed.
       </p>
 
@@ -777,9 +772,7 @@ export default function App() {
         <div className="field">
           <label className="label">Dataset</label>
           <select className="select" value={dataset} onChange={(e) => setDataset(e.target.value)}>
-            <option value="revenue">Revenue</option>
-            <option value="transactions">Transactions</option>
-            <option value="quantities">Quantities</option>
+            <option value={DEFAULT_DATASET}>Historical_All</option>
           </select>
         </div>
 
